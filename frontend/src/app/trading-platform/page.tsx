@@ -2,37 +2,87 @@
 
 import React, { useState } from "react";
 
+// Interface for trading rules
+interface TradingRule {
+    id: string;
+    ticker: string;
+    action: "buy" | "sell";
+    condition: "greater_than" | "less_than";
+    threshold: number;
+    quantity: number;
+    originalCode: string;
+}
+
 const ThreeSectionLayout = () => {
     // State for chat history
     const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
 
-    // State for cards data
-    const [cardsData, setCardsData] = useState([
-        {
-            title: "Card 1",
-            content: "This is the content of the first card. It contains some sample text to demonstrate the layout.",
-        },
-        {
-            title: "Card 2",
-            content: "This is the second card with different content. You can scroll through multiple cards.",
-        },
-        { title: "Card 3", content: "Third card showcasing the scrollable functionality of this section." },
-        { title: "Card 4", content: "Another card to demonstrate the scrolling feature when there are many cards." },
-        { title: "Card 5", content: "Fifth card with more sample content to fill the scrollable area." },
-        { title: "Card 6", content: "Last sample card to show how the scroll works with multiple items." },
-    ]);
+    // State for trading cards
+    const [tradingCards, setTradingCards] = useState<TradingRule[]>([]);
 
     // State for input forms
     const [userInput, setUserInput] = useState("");
     const [chatInput, setChatInput] = useState("");
     const [processedMessage, setProcessedMessage] = useState("");
 
+    // Parse trading code and extract rules
+    const parseTradingCode = (code: string): TradingRule[] => {
+        const rules: TradingRule[] = [];
+        const lines = code.split("\n").filter((line) => line.trim());
+
+        lines.forEach((line, index) => {
+            try {
+                // Match patterns like: if NVDA price < 180: buy 15 NVDA
+                const priceMatch = line.match(
+                    /if\s+(\w+)\s+price\s+([<>]=?)\s+(\d+(?:\.\d+)?)\s*:\s*(buy|sell)\s+(\d+)\s+\w+/i
+                );
+
+                if (priceMatch) {
+                    const [, ticker, operator, threshold, action, quantity] = priceMatch;
+
+                    const rule: TradingRule = {
+                        id: `rule_${Date.now()}_${index}`,
+                        ticker: ticker.toUpperCase(),
+                        action: action.toLowerCase() as "buy" | "sell",
+                        condition: operator === ">" || operator === ">=" ? "greater_than" : "less_than",
+                        threshold: parseFloat(threshold),
+                        quantity: parseInt(quantity),
+                        originalCode: line.trim(),
+                    };
+
+                    rules.push(rule);
+                }
+            } catch (error) {
+                console.error(`Error parsing line: ${line}`, error);
+            }
+        });
+
+        return rules;
+    };
+
     // Handle input processing
     const handleProcessInput = () => {
-        if (userInput) {
-            setProcessedMessage(`Processed: ${userInput}`);
-        } else {
+        if (!userInput.trim()) {
             setProcessedMessage("Please enter some text first!");
+            return;
+        }
+
+        try {
+            const newRules = parseTradingCode(userInput);
+
+            if (newRules.length === 0) {
+                setProcessedMessage(
+                    "No valid trading rules found. Please use format: 'if TICKER price < THRESHOLD: buy QUANTITY TICKER'"
+                );
+                return;
+            }
+
+            // Add new trading cards
+            setTradingCards((prev) => [...prev, ...newRules]);
+            setProcessedMessage(`Successfully parsed ${newRules.length} trading rule(s)!`);
+            setUserInput(""); // Clear input after processing
+        } catch (error) {
+            setProcessedMessage(`Error parsing code: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     };
 
@@ -53,6 +103,22 @@ const ThreeSectionLayout = () => {
     // Handle clearing chat
     const handleClearChat = () => {
         setChatHistory([]);
+    };
+
+    // Handle trading card click - open Flask app with pre-populated data
+    const handleCardClick = (rule: TradingRule) => {
+        // Create URL parameters for the Flask app
+        const params = new URLSearchParams({
+            ticker: rule.ticker,
+            action: rule.action,
+            condition: rule.condition,
+            threshold: rule.threshold.toString(),
+            quantity: rule.quantity.toString(),
+        });
+
+        // Open Flask app in new tab with parameters
+        const flaskUrl = `http://127.0.0.1:5001/?${params.toString()}`;
+        window.open(flaskUrl, "_blank");
     };
 
     return (
@@ -104,20 +170,57 @@ const ThreeSectionLayout = () => {
 
                 {/* RIGHT SIDE - Cards section spanning two quadrants */}
                 <div className="row-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                    <h2 className="text-xl font-semibold text-blue-600 mb-4 flex items-center">�� Cards Section</h2>
+                    <h2 className="text-xl font-semibold text-blue-600 mb-4 flex items-center">��📋 Trading Rules</h2>
 
                     {/* Scrollable Cards Container */}
                     <div className="h-full overflow-y-auto border border-gray-200 rounded-md p-3 bg-gray-50">
                         <div className="space-y-3">
-                            {cardsData.map((card, index) => (
-                                <div
-                                    key={index}
-                                    className="bg-white border border-gray-200 rounded-md p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
-                                >
-                                    <div className="font-semibold text-gray-800 mb-2">{card.title}</div>
-                                    <div className="text-gray-600 text-sm">{card.content}</div>
+                            {tradingCards.length === 0 ? (
+                                <div className="text-center text-gray-500 italic py-8">
+                                    <i className="fas fa-chart-line text-3xl mb-3 block"></i>
+                                    <p>Enter trading code and click "Process Input" to create trading rules.</p>
                                 </div>
-                            ))}
+                            ) : (
+                                tradingCards.map((rule) => (
+                                    <div
+                                        key={rule.id}
+                                        onClick={() => handleCardClick(rule)}
+                                        className="bg-white border border-gray-200 rounded-md p-4 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer hover:border-blue-300"
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="font-semibold text-gray-800">{rule.ticker}</div>
+                                            <div
+                                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                                    rule.action === "buy"
+                                                        ? "bg-green-100 text-green-800"
+                                                        : "bg-red-100 text-red-800"
+                                                }`}
+                                            >
+                                                {rule.action.toUpperCase()}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1 text-sm text-gray-600">
+                                            <div>
+                                                <span className="font-medium">Condition:</span>
+                                                Price {rule.condition === "greater_than" ? ">" : "<"} ${rule.threshold}
+                                            </div>
+                                            <div>
+                                                <span className="font-medium">Quantity:</span> {rule.quantity} shares
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-2 pt-2 border-t border-gray-100">
+                                            <div className="text-xs text-gray-500 font-mono">{rule.originalCode}</div>
+                                        </div>
+
+                                        <div className="mt-2 text-xs text-blue-600">
+                                            <i className="fas fa-external-link-alt mr-1"></i>
+                                            Click to open in Flask app
+                                        </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>
